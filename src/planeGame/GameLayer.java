@@ -12,8 +12,11 @@ import org.cocos2d.actions.interval.CCBlink;
 import org.cocos2d.actions.interval.CCMoveBy;
 import org.cocos2d.actions.interval.CCMoveTo;
 import org.cocos2d.actions.interval.CCSequence;
+import org.cocos2d.events.CCTouchDispatcher;
 import org.cocos2d.layers.CCLayer;
-import org.cocos2d.layers.CCScene;
+import org.cocos2d.menus.CCMenu;
+import org.cocos2d.menus.CCMenuItem;
+import org.cocos2d.menus.CCMenuItemSprite;
 import org.cocos2d.nodes.CCAnimation;
 import org.cocos2d.nodes.CCDirector;
 import org.cocos2d.nodes.CCLabel;
@@ -23,11 +26,11 @@ import org.cocos2d.types.CGPoint;
 import org.cocos2d.types.CGRect;
 import org.cocos2d.types.CGSize;
 
-import com.example.neewgame.R;
-
 import android.content.Context;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+
+import com.example.neewgame.R;
 
 
 public class GameLayer extends CCLayer {
@@ -45,6 +48,8 @@ public class GameLayer extends CCLayer {
 	
 	private List<CCSprite> bulletList = new LinkedList<CCSprite>();
 	
+	private List<CCSprite> enemybulletList = new LinkedList<CCSprite>();
+	
 	CCLabel scorelabel = CCLabel.makeLabel("分数 ：0", "宋体", 20);
 	
 	private CGSize winSize = null;
@@ -60,6 +65,8 @@ public class GameLayer extends CCLayer {
 	
 	public GameLayer() {
 		this.setIsTouchEnabled(true);
+		this.setIsKeyEnabled(true);
+		this.setIsAccelerometerEnabled(true);
 		
 		context = CCDirector.sharedDirector().getActivity();
 	    SoundEngine.sharedEngine().preloadEffect(context, R.raw.game_music);
@@ -93,7 +100,7 @@ public class GameLayer extends CCLayer {
 		
 		this.addChild(player);	
 		scorelabel.setAnchorPoint(0, 0);
-		scorelabel.setPosition(0, winSize.height - 50);
+		scorelabel.setPosition(0, winSize.height - 30);
 		this.addChild(scorelabel);
 		
 		CCAnimation enemyAnimation = CCAnimation.animation("enemyAni", 0.1f);
@@ -106,11 +113,28 @@ public class GameLayer extends CCLayer {
 		hide = CCHide.action();
 		enemyDownSeq = CCSequence.actions(enemyAnimate, hide);
 		
+		CCMenu menu = CCMenu.menu();
+		menu.setPosition(0,0);
+		CCSprite btn = CCSprite.sprite("backbtn.png");
+		CCMenuItem item = CCMenuItemSprite.item(btn, btn, this, "backOperate");
+		item.setAnchorPoint(0,0);
+		item.setPosition(winSize.width - 50, winSize.height - 50);
+		menu.addChild(item);
+		this.addChild(menu);
+		
+		CCTouchDispatcher.sharedDispatcher().addTargetedDelegate(this, 0, true);
+		
 		this.schedule("backgroundMove", 0.01f);
 		this.schedule("shoot", 0.8f);
+		this.schedule("enemyShoot", 1.2f);
 		this.schedule("addEnemy", 2.5f);
 		this.schedule("boom", 1/30);
 		this.schedule("bulletJudge", 1/30);
+		this.schedule("shootPlayer", 1/30);
+	}
+	
+	public void backOperate(Object sender) {
+		exitGame();
 	}
 	
 	@Override
@@ -148,7 +172,9 @@ public class GameLayer extends CCLayer {
 	public boolean ccTouchesEnded(MotionEvent event) {
 		CGPoint p1 = CGPoint.ccp(event.getX(), event.getY());
 		endPoint =  CCDirector.sharedDirector().convertToGL(p1);
-		moveThePlayer(this.startPoint, this.endPoint);
+		if(!CGRect.containsPoint(player.getBoundingBox(), endPoint)) {
+			moveThePlayer(this.startPoint, this.endPoint);
+		}
 		return super.ccTouchesEnded(event);
 	}
 
@@ -167,13 +193,24 @@ public class GameLayer extends CCLayer {
 	 */
 	public void shoot(float dalat) {
 		CCSprite bullet = CCSprite.sprite("bullet1.png");
-		bullet.setPosition(player.getPosition().x, player.getPosition().y + player.getContentSize().height / 2);
-		CGPoint p = CGPoint.ccp(0, winSize.getHeight() + 10);
+		bullet.setPosition(player.getPosition().x, player.getPosition().y + player.getContentSize().height);
 		addChild(bullet);
-		CCMoveBy move = CCMoveBy.action(5, p);
+		CCMoveBy move = CCMoveBy.action(5, CGPoint.ccp(0, winSize.getHeight() + 10));
 		bullet.runAction(move);
 		this.bulletList.add(bullet);
 	}
+	
+	public void enemyShoot(float dalat) {
+		CCSprite enemy = this.enemyList.get(random.nextInt(this.enemyList.size()));
+		CCSprite bullet = CCSprite.sprite("bullet2.png");
+		bullet.setPosition(enemy.getPosition());
+		addChild(bullet);
+		CCMoveTo moveTo = CCMoveTo.action(8, CGPoint.ccp(player.getPosition().x, -20));
+		bullet.runAction(moveTo);
+		this.enemybulletList.add(bullet);
+	}
+	
+	
 	
 	/**
 	 * 随机生成敌机
@@ -194,14 +231,10 @@ public class GameLayer extends CCLayer {
 	 * @param dalat
 	 * @return
 	 */
-	public boolean boom(float dalat) { 
-		CGRect projectileRect = CGRect.make(player.getPosition().x - player.getContentSize().width / 2, player.getPosition().y,
-				player.getContentSize().width, player.getContentSize().height/2);
+	public void boom(float dalat) { 
 		for(int i = 0; i < enemyList.size(); i++) {
 			CCSprite enemy = enemyList.get(i);
-			CGRect enemyRect = CGRect.make(enemy.getPosition().x - enemy.getContentSize().width / 2, enemy.getPosition().y,
-					enemy.getContentSize().width, enemy.getContentSize().height/2);
-			if(CGRect.intersects(projectileRect, enemyRect)){  
+			if(CGRect.intersects(player.getBoundingBox(), enemy.getBoundingBox())){  
 				CCBlink blink = CCBlink.action(1, 3);
 				CCHide hide = CCHide.action();
 				this.enemyList.remove(i);
@@ -219,14 +252,45 @@ public class GameLayer extends CCLayer {
 						exitGame();
 					}
 				}.start();
-				return true;
 			}
 			if(enemy.getPosition().y < 0) {
 				this.enemyList.remove(i);
 				this.removeChild(enemy, true);
 			}
 		}
-		return false;
+	}
+	
+	/**
+	 * 判断主机是否被子弹击中
+	 * @param dalat
+	 */
+	public void shootPlayer(float dalat) { 
+		for(int i = 0; i < enemybulletList.size(); i++) {
+			CCSprite bullet = enemybulletList.get(i);
+			if(CGRect.intersects(player.getBoundingBox(), bullet.getBoundingBox())){  
+				CCBlink blink = CCBlink.action(1, 3);
+				CCHide hide = CCHide.action();
+				this.enemybulletList.remove(i);
+				CCSequence seq = CCSequence.actions(blink, hide);
+				bullet.runAction(hide);
+				player.runAction(seq);
+				new Thread(){
+					public void run() {
+						try {
+							Thread.sleep(1000);
+						} catch (InterruptedException e) {
+							// TODO Auto-generated catch block
+							e.printStackTrace();
+						}
+						exitGame();
+					}
+				}.start();
+			}
+			if(bullet.getPosition().y < 0) {
+				this.enemybulletList.remove(i);
+				this.removeChild(bullet, true);
+			}
+		}
 	}
 	
 	/**
@@ -279,25 +343,27 @@ public class GameLayer extends CCLayer {
 		SoundEngine.sharedEngine().pauseSound();
 		this.unschedule("backgroundMove");
 		this.unschedule("shoot");
+		this.unschedule("enemyShoot");
 		this.unschedule("addEnemy");
 		this.unschedule("boom");
 		this.unschedule("bulletJudge");
+		this.unschedule("shootPlayer");
 		this.removeAllChildren(true);
 		background1.setPosition(0, 0);
 		this.addChild(background1);
 		background2.setPosition(0, background1.getContentSize().height);
 		this.addChild(background2);
-		scorelabel.setPosition(30, CCDirector.sharedDirector().winSize().height / 2);
-		this.addChild(scorelabel);
-		
 		gameOverTitle.setAnchorPoint(0, 0);
-		gameOverTitle.setPosition(30, scorelabel.getPosition().y + 40);
+		gameOverTitle.setPosition((winSize.width - gameOverTitle.getContentSize().width) / 2, 
+				winSize.height /2);
 		this.addChild(gameOverTitle);
+		scorelabel.setPosition(gameOverTitle.getPosition().x, winSize.height / 2 - 50);
+		this.addChild(scorelabel);
 	}
 
 	@Override
 	public boolean ccKeyDown(int keyCode, KeyEvent event) {
-		SoundEngine.sharedEngine().pauseSound();
+		exitGame();
 		return super.ccKeyDown(keyCode, event);
 	}
 	
